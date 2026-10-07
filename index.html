@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mi Galería 📸</title>
+  <style>
+    *{box-sizing:border-box}
+    body{margin:0;font-family:system-ui,-apple-system,Segoe UI,sans-serif;background:#f5f3ff;color:#27234a}
+    header{padding:42px 20px 32px;text-align:center;background:linear-gradient(135deg,#5b4bdb,#9b5de5);color:white}
+    header h1{margin:0;font-size:clamp(2rem,8vw,3.4rem)}
+    header p{margin:10px auto 0;max-width:520px;font-size:1.05rem;opacity:.95}
+    main{max-width:1100px;margin:auto;padding:24px 16px 50px}
+    .toolbar{display:flex;gap:12px;flex-wrap:wrap;align-items:center;justify-content:space-between;margin-bottom:20px}
+    .btn{border:0;border-radius:14px;padding:13px 18px;font-weight:700;cursor:pointer;font-size:1rem}
+    .primary{background:#5b4bdb;color:white}
+    .secondary{background:white;color:#5b4bdb;border:1px solid #ddd7ff}
+    input[type=file]{display:none}
+    .drop{border:2px dashed #bdb4ef;background:white;border-radius:20px;padding:30px 18px;text-align:center;margin-bottom:22px}
+    .drop.drag{background:#eeeaff}
+    .drop strong{display:block;font-size:1.15rem;margin-bottom:7px}
+    .count{font-weight:700;color:#625aa0}
+    .gallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(155px,1fr));gap:14px}
+    .card{position:relative;aspect-ratio:1;border-radius:18px;overflow:hidden;background:white;box-shadow:0 6px 20px #33277a18}
+    .card img{width:100%;height:100%;object-fit:cover;display:block;cursor:pointer}
+    .delete{position:absolute;right:8px;top:8px;width:34px;height:34px;border:0;border-radius:50%;background:#ffffffdd;cursor:pointer;font-size:18px}
+    .empty{text-align:center;padding:55px 20px;color:#77719a}
+    .modal{display:none;position:fixed;inset:0;background:#000b;z-index:10;align-items:center;justify-content:center;padding:20px}
+    .modal.open{display:flex}
+    .modal img{max-width:95vw;max-height:88vh;border-radius:14px}
+    .close{position:fixed;right:18px;top:18px;border:0;border-radius:50%;width:44px;height:44px;font-size:25px;cursor:pointer}
+    footer{text-align:center;color:#8a84aa;font-size:.9rem;padding:10px 20px 30px}
+  </style>
+</head>
+<body>
+<header>
+  <h1>Mi Galería 📸</h1>
+  <p>Mis fotos, mis recuerdos y mis momentos favoritos.</p>
+</header>
+
+<main>
+  <div class="toolbar">
+    <span class="count" id="count">0 fotos</span>
+    <div>
+      <button class="btn secondary" id="clearBtn">Borrar todo</button>
+      <label class="btn primary" for="fileInput">＋ Subir fotos</label>
+      <input id="fileInput" type="file" accept="image/*" multiple>
+    </div>
+  </div>
+
+  <div class="drop" id="drop">
+    <strong>Arrastra tus fotos aquí</strong>
+    <span>o toca “＋ Subir fotos” para elegirlas desde tu celular.</span>
+  </div>
+
+  <section class="gallery" id="gallery"></section>
+</main>
+
+<footer>Las fotos se guardan en este navegador mediante almacenamiento local.</footer>
+
+<div class="modal" id="modal">
+  <button class="close" id="close">×</button>
+  <img id="bigImg" alt="Foto ampliada">
+</div>
+
+<script>
+const DB_NAME='miGaleriaDB', STORE='fotos';
+let db;
+
+const request=indexedDB.open(DB_NAME,1);
+request.onupgradeneeded=e=>e.target.result.createObjectStore(STORE,{keyPath:'id',autoIncrement:true});
+request.onsuccess=e=>{db=e.target.result;render()};
+
+const fileInput=document.getElementById('fileInput');
+fileInput.addEventListener('change',()=>addFiles(fileInput.files));
+
+async function addFiles(files){
+  if(!db)return;
+  const tx=db.transaction(STORE,'readwrite'), store=tx.objectStore(STORE);
+  for(const file of files){
+    if(!file.type.startsWith('image/'))continue;
+    store.add({blob:file, name:file.name, date:Date.now()});
+  }
+  tx.oncomplete=render;
+  fileInput.value='';
+}
+
+function getAll(){
+  return new Promise((resolve,reject)=>{
+    const tx=db.transaction(STORE,'readonly');
+    const req=tx.objectStore(STORE).getAll();
+    req.onsuccess=()=>resolve(req.result.reverse());
+    req.onerror=()=>reject(req.error);
+  });
+}
+
+async function render(){
+  if(!db)return;
+  const photos=await getAll();
+  const gallery=document.getElementById('gallery');
+  document.getElementById('count').textContent=`${photos.length} ${photos.length===1?'foto':'fotos'}`;
+  gallery.innerHTML='';
+  if(!photos.length){
+    gallery.innerHTML='<div class="empty" style="grid-column:1/-1">Aún no tienes fotos. 🥹📷<br>Sube la primera y aparecerá aquí.</div>';
+    return;
+  }
+  photos.forEach(p=>{
+    const card=document.createElement('div'); card.className='card';
+    const img=document.createElement('img'); img.src=URL.createObjectURL(p.blob); img.alt=p.name;
+    img.onclick=()=>openModal(img.src);
+    const del=document.createElement('button'); del.className='delete'; del.textContent='🗑️';
+    del.onclick=()=>{if(confirm('¿Borrar esta foto?')){const tx=db.transaction(STORE,'readwrite');tx.objectStore(STORE).delete(p.id);tx.oncomplete=render}};
+    card.append(img,del); gallery.append(card);
+  });
+}
+
+const drop=document.getElementById('drop');
+['dragenter','dragover'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add('drag')}));
+['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove('drag')}));
+drop.addEventListener('drop',e=>addFiles(e.dataTransfer.files));
+
+document.getElementById('clearBtn').onclick=()=>{
+  if(confirm('¿Seguro que quieres borrar todas las fotos?')){
+    const tx=db.transaction(STORE,'readwrite');tx.objectStore(STORE).clear();tx.oncomplete=render;
+  }
+};
+
+const modal=document.getElementById('modal');
+function openModal(src){document.getElementById('bigImg').src=src;modal.classList.add('open')}
+document.getElementById('close').onclick=()=>modal.classList.remove('open');
+modal.onclick=e=>{if(e.target===modal)modal.classList.remove('open')};
+</script>
+</body>
+</html>
